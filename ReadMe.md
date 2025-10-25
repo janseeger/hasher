@@ -1,5 +1,8 @@
 # Hasher
 
+[![Build Status](https://github.com/janseeger/hasher/actions/workflows/rust.yml/badge.svg)](https://github.com/janseeger/hasher/actions/workflows/rust.yml)
+[![GitHub License](https://img.shields.io/github/license/janseeger/hasher)](https://github.com/janseeger/hasher/blob/main/LICENSE)
+
 A high-performance file and directory hashing tool written in Rust that creates Merkle tree hashes (similar to git's content-addressable storage).
 
 ## Features
