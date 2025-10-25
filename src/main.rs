@@ -154,7 +154,6 @@ fn hash_directory(path: &Path, verbose: bool) -> Result<HashResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
     use tempfile::TempDir;
 
     #[test]
