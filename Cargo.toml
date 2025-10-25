@@ -1,0 +1,18 @@
+[package]
+name = "hasher"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sha2 = "0.10"
+hex = "0.4"
+memmap2 = "0.9"
+rayon = "1.8"
+anyhow = "1.0"
+clap = { version = "4.4", features = ["derive"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+strip = true
