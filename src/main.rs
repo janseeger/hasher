@@ -45,12 +45,9 @@ fn main() -> Result<()> {
             .context("Failed to build thread pool")?;
     }
 
-    let start = std::time::Instant::now();
     let result = hash_path(&args.path, args.verbose)?;
-    let duration = start.elapsed();
 
-    println!("Root hash: {}", result.hash);
-    println!("Completed in {:.2?}", duration);
+    println!("{}", result.hash);
 
     Ok(())
 }
