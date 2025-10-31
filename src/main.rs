@@ -47,10 +47,21 @@ fn main() -> Result<()> {
 }
 
 fn hash_path(path: &Path, verbose: bool) -> Result<HashResult> {
-    let metadata = fs::metadata(path)
+    let metadata = fs::symlink_metadata(path)
         .with_context(|| format!("Failed to read metadata for: {}", path.display()))?;
 
-    if metadata.is_file() {
+    if metadata.is_symlink() {
+        let hash = hash_symlink(path)?;
+
+        if verbose {
+            println!("LINK {} -> {}", path.display(), hash);
+        }
+
+        Ok(HashResult {
+            path: path.to_path_buf(),
+            hash,
+        })
+    } else if metadata.is_file() {
         let hash = if metadata.len() > LARGE_FILE_THRESHOLD {
             hash_large_file(path)?
         } else {
@@ -70,6 +81,17 @@ fn hash_path(path: &Path, verbose: bool) -> Result<HashResult> {
     } else {
         anyhow::bail!("Path is neither file nor directory: {}", path.display());
     }
+}
+
+fn hash_symlink(path: &Path) -> Result<String> {
+    let target = fs::read_link(path)
+        .with_context(|| format!("Failed to read symlink: {}", path.display()))?;
+    
+    let target_str = target.to_str()
+        .context("Symlink target contains invalid UTF-8")?;
+    
+    let hash = Sha256::digest(target_str.as_bytes());
+    Ok(hex::encode(hash))
 }
 
 fn hash_small_file(path: &Path) -> Result<String> {
@@ -139,6 +161,7 @@ fn hash_directory(path: &Path, verbose: bool) -> Result<HashResult> {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+    use std::os::unix::fs::symlink;
 
     #[test]
     fn test_small_file_hash() {
@@ -175,6 +198,38 @@ mod tests {
         fs::write(subdir.join("nested.txt"), b"nested").unwrap();
 
         let result = hash_path(dir.path(), false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_symlink_hash() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("target.txt");
+        let link = dir.path().join("link.txt");
+        
+        fs::write(&target, b"target content").unwrap();
+        symlink("target.txt", &link).unwrap();
+
+        let result = hash_path(&link, false);
+        assert!(result.is_ok());
+
+        let hash1 = hash_symlink(&link).unwrap();
+        let hash2 = hash_symlink(&link).unwrap();
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_directory_with_symlink() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("target.txt");
+        let link = dir.path().join("link.txt");
+        
+        fs::write(&target, b"content").unwrap();
+        symlink("target.txt", &link).unwrap();
+
+        let result = hash_directory(dir.path(), false);
         assert!(result.is_ok());
     }
 }
