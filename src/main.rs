@@ -150,10 +150,18 @@ fn hash_directory(path: &Path, verbose: bool) -> Result<Vec<HashResult>> {
 
     entries.sort_by_key(|e| e.file_name());
 
-    return entries
-        .par_iter()
-        .map(|entry| hash_path(&entry.path(), verbose))
-        .collect();
+    let threshold = rayon::current_num_threads();
+    if entries.len() > threshold {
+        entries
+            .into_par_iter()
+            .map(|entry| hash_path(&entry.path(), verbose))
+            .collect()
+    } else {
+        entries
+            .into_iter()
+            .map(|entry| hash_path(&entry.path(), verbose))
+            .collect()
+    }
 }
 
 pub fn build_merkle_hash(entries: &[(String, String)]) -> String {
