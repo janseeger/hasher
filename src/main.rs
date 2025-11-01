@@ -77,7 +77,29 @@ fn hash_path(path: &Path, verbose: bool) -> Result<HashResult> {
             hash,
         })
     } else if metadata.is_dir() {
-        hash_directory(path, verbose)
+        let child_results = hash_directory(path, verbose)?;
+        
+        let child_hashes: Vec<(String, String)> = child_results
+            .iter()
+            .map(|result| {
+                let filename = result.path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .context("Invalid filename")?;
+                Ok((filename.to_string(), result.hash.clone()))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        let hash = build_merkle_hash(&child_hashes);
+
+        if verbose {
+            println!("DIR  {} -> {}", path.display(), hash);
+        }
+
+        Ok(HashResult {
+            path: path.to_path_buf(),
+            hash,
+        })
     } else {
         anyhow::bail!("Path is neither file nor directory: {}", path.display());
     }
@@ -120,7 +142,7 @@ fn hash_large_file(path: &Path) -> Result<String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
-fn hash_directory(path: &Path, verbose: bool) -> Result<HashResult> {
+fn hash_directory(path: &Path, verbose: bool) -> Result<Vec<HashResult>> {
     let mut entries: Vec<_> = fs::read_dir(path)
         .with_context(|| format!("Failed to read directory: {}", path.display()))?
         .collect::<Result<Vec<_>, _>>()
@@ -128,33 +150,18 @@ fn hash_directory(path: &Path, verbose: bool) -> Result<HashResult> {
 
     entries.sort_by_key(|e| e.file_name());
 
-    let child_results: Result<Vec<HashResult>> = entries
+    return entries
         .par_iter()
         .map(|entry| hash_path(&entry.path(), verbose))
         .collect();
+}
 
-    let child_results = child_results?;
-
+pub fn build_merkle_hash(entries: &[(String, String)]) -> String {
     let mut hasher = Sha256::new();
-    for result in &child_results {
-        let filename = result.path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .context("Invalid filename")?;
-
-        hasher.update(format!("{} {}\n", filename, result.hash).as_bytes());
+    for (filename, hash) in entries {
+        hasher.update(format!("{} {}\n", filename, hash).as_bytes());
     }
-
-    let hash = hex::encode(hasher.finalize());
-
-    if verbose {
-        println!("DIR  {} -> {}", path.display(), hash);
-    }
-
-    Ok(HashResult {
-        path: path.to_path_buf(),
-        hash,
-    })
+    hex::encode(hasher.finalize())
 }
 
 #[cfg(test)]
@@ -177,13 +184,44 @@ mod tests {
     }
 
     #[test]
+    fn test_merkle_hash_simple() {
+        let entries = vec![
+            ("a.txt".to_string(), "hash_a".to_string()),
+            ("b.txt".to_string(), "hash_b".to_string()),
+        ];
+
+        let hash1 = build_merkle_hash(&entries);
+        let hash2 = build_merkle_hash(&entries);
+
+        assert_eq!(hash1, hash2, "Merkle hash should be deterministic");
+    }
+
+    #[test]
+    fn test_merkle_hash_order_matters() {
+        let entries1 = vec![
+            ("a.txt".to_string(), "hash_a".to_string()),
+            ("b.txt".to_string(), "hash_b".to_string()),
+        ];
+
+        let entries2 = vec![
+            ("b.txt".to_string(), "hash_b".to_string()),
+            ("a.txt".to_string(), "hash_a".to_string()),
+        ];
+
+        let hash1 = build_merkle_hash(&entries1);
+        let hash2 = build_merkle_hash(&entries2);
+
+        assert_ne!(hash1, hash2, "Merkle hash should depend on order");
+    }
+
+    #[test]
     fn test_directory_hash_deterministic() {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("a.txt"), b"content a").unwrap();
         fs::write(dir.path().join("b.txt"), b"content b").unwrap();
 
-        let hash1 = hash_directory(dir.path(), false).unwrap().hash;
-        let hash2 = hash_directory(dir.path(), false).unwrap().hash;
+        let hash1 = hash_path(dir.path(), false).unwrap().hash;
+        let hash2 = hash_path(dir.path(), false).unwrap().hash;
 
         assert_eq!(hash1, hash2, "Directory hash should be deterministic");
     }
@@ -229,7 +267,30 @@ mod tests {
         fs::write(&target, b"content").unwrap();
         symlink("target.txt", &link).unwrap();
 
-        let result = hash_directory(dir.path(), false);
+        let result = hash_path(dir.path(), false);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_merkle_hash_with_real_file_hashes() {
+        let dir = TempDir::new().unwrap();
+        let file_a = dir.path().join("a.txt");
+        let file_b = dir.path().join("b.txt");
+        
+        fs::write(&file_a, b"content a").unwrap();
+        fs::write(&file_b, b"content b").unwrap();
+
+        let hash_a = hash_small_file(&file_a).unwrap();
+        let hash_b = hash_small_file(&file_b).unwrap();
+
+        let entries = vec![
+            ("a.txt".to_string(), hash_a),
+            ("b.txt".to_string(), hash_b),
+        ];
+
+        let merkle_hash = build_merkle_hash(&entries);
+        
+        let dir_hash = hash_path(dir.path(), false).unwrap().hash;
+        assert_eq!(merkle_hash, dir_hash);
     }
 }
