@@ -6,24 +6,19 @@ use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
-/// Threshold for switching between small and large file hashing strategies (1MB)
 const LARGE_FILE_THRESHOLD: u64 = 1024 * 1024;
 
-/// Chunk size for streaming large files (64KB)
 const CHUNK_SIZE: usize = 64 * 1024;
 
 #[derive(Parser)]
 #[command(name = "hasher")]
 #[command(about = "Fast Merkle tree hashing for files and directories")]
 struct Args {
-    /// Path to hash (file or directory)
     path: PathBuf,
 
-    /// Show individual file hashes (not just root hash)
     #[arg(short, long)]
     verbose: bool,
 
-    /// Number of parallel threads (default: CPU count)
     #[arg(short, long)]
     threads: Option<usize>,
 }
@@ -37,7 +32,6 @@ struct HashResult {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    // Configure thread pool
     if let Some(threads) = args.threads {
         rayon::ThreadPoolBuilder::new()
             .num_threads(threads)
@@ -52,7 +46,6 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// Hash a path (file or directory) using appropriate strategy
 fn hash_path(path: &Path, verbose: bool) -> Result<HashResult> {
     let metadata = fs::metadata(path)
         .with_context(|| format!("Failed to read metadata for: {}", path.display()))?;
@@ -79,7 +72,6 @@ fn hash_path(path: &Path, verbose: bool) -> Result<HashResult> {
     }
 }
 
-/// Hash a small file by reading it entirely into memory
 fn hash_small_file(path: &Path) -> Result<String> {
     let bytes = fs::read(path)
         .with_context(|| format!("Failed to read file: {}", path.display()))?;
@@ -88,12 +80,10 @@ fn hash_small_file(path: &Path) -> Result<String> {
     Ok(hex::encode(hash))
 }
 
-/// Hash a large file using memory-mapped I/O for efficiency
 fn hash_large_file(path: &Path) -> Result<String> {
     let file = File::open(path)
         .with_context(|| format!("Failed to open file: {}", path.display()))?;
     
-    // Safety: We're only reading from the mmap, and the file won't be modified
     let mmap = unsafe {
         Mmap::map(&file)
             .with_context(|| format!("Failed to mmap file: {}", path.display()))?
@@ -101,7 +91,6 @@ fn hash_large_file(path: &Path) -> Result<String> {
 
     let mut hasher = Sha256::new();
     
-    // Process in chunks to maintain good cache locality
     for chunk in mmap.chunks(CHUNK_SIZE) {
         hasher.update(chunk);
     }
@@ -109,17 +98,14 @@ fn hash_large_file(path: &Path) -> Result<String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
-/// Hash a directory by creating a Merkle tree of its contents
 fn hash_directory(path: &Path, verbose: bool) -> Result<HashResult> {
     let mut entries: Vec<_> = fs::read_dir(path)
         .with_context(|| format!("Failed to read directory: {}", path.display()))?
         .collect::<Result<Vec<_>, _>>()
         .with_context(|| format!("Failed to enumerate directory: {}", path.display()))?;
 
-    // Sort entries for deterministic hashing (like git)
     entries.sort_by_key(|e| e.file_name());
 
-    // Process entries in parallel
     let child_results: Result<Vec<HashResult>> = entries
         .par_iter()
         .map(|entry| hash_path(&entry.path(), verbose))
@@ -127,15 +113,13 @@ fn hash_directory(path: &Path, verbose: bool) -> Result<HashResult> {
 
     let child_results = child_results?;
 
-    // Build directory hash from sorted child hashes
     let mut hasher = Sha256::new();
     for result in &child_results {
         let filename = result.path
             .file_name()
             .and_then(|n| n.to_str())
             .context("Invalid filename")?;
-        
-        // Format: "filename hash\n" (similar to git tree objects)
+
         hasher.update(format!("{} {}\n", filename, result.hash).as_bytes());
     }
 
@@ -163,7 +147,6 @@ mod tests {
         fs::write(&file_path, b"hello world").unwrap();
 
         let hash = hash_small_file(&file_path).unwrap();
-        // SHA256 of "hello world"
         assert_eq!(
             hash,
             "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
