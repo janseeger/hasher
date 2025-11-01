@@ -293,4 +293,23 @@ mod tests {
         let dir_hash = hash_path(dir.path(), false).unwrap().hash;
         assert_eq!(merkle_hash, dir_hash);
     }
+
+    #[test]
+    fn test_subdirectory_hash_consistency() {
+        let dir = TempDir::new().unwrap();
+        let subdir = dir.path().join("subdir");
+        fs::create_dir(&subdir).unwrap();
+        
+        fs::write(subdir.join("nested.txt"), b"nested content").unwrap();
+
+        let subdir_hash = hash_path(&subdir, false).unwrap().hash;
+        
+        let parent_children = hash_directory(dir.path(), false).unwrap();
+        let subdir_entry = parent_children
+            .iter()
+            .find(|r| r.path.file_name().unwrap() == "subdir")
+            .unwrap();
+        
+        assert_eq!(subdir_hash, subdir_entry.hash);
+    }
 }
