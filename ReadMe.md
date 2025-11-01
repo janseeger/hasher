@@ -25,7 +25,7 @@ A high-performance file and directory hashing tool written in Rust that creates 
 cargo build --release
 ```
 
-The optimized binary will be at `target/release/merkle-hasher`
+The optimized binary will be at `target/release/hasher`
 
 ## Usage
 
