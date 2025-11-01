@@ -164,7 +164,7 @@ fn hash_directory(path: &Path, verbose: bool) -> Result<Vec<HashResult>> {
     }
 }
 
-pub fn build_merkle_hash(entries: &[(String, String)]) -> String {
+fn build_merkle_hash(entries: &[(String, String)]) -> String {
     let mut hasher = Sha256::new();
     for (filename, hash) in entries {
         hasher.update(format!("{} {}\n", filename, hash).as_bytes());
